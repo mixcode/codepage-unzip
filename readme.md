@@ -5,6 +5,12 @@ Standard Linux **unzip** does not go well with old, non-unicode ZIPs.
 This tool accepts incoming codepages
 
 
+## Install
+With a go commandline,
+```
+go install github.com/mixcode/codepage-unzip@latest
+```
+
 ## Usage
 
 ```
@@ -15,8 +21,7 @@ This tool internally use iconv for character conversion, so the encoding name sh
 
 You may get a list of character encodings with the command `iconv --list`
 
-## Example
-Decompress a zip with Japanese filenames.
+### Example: decompress a zip with Japanese filenames.
 
 ```
 codepage-unzip -f SHIFT-JIS japanese_zip_archive.zip
