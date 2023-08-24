@@ -1,8 +1,8 @@
 
 # codepage-unzip: A tool to unzip non-unicode ZIP archives with proper codepage handling
 
-Standard Linux **unzip** does not go well with old, non-unicode ZIPs.
-This tool accepts incoming codepages
+Standard Unix/Linux **unzip** does not go well with old, non-unicode ZIPs.
+This tool properly creates unicode filenames from such old ZIP files.
 
 
 ## Install
