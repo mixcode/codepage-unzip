@@ -33,8 +33,6 @@ const (
 	UTF8 = "utf-8"
 
 	//FLAG_EFS = 0x800 // EFS: Language Encoding Flag: if set, the filename is in UTF-8
-
-	dirPerm = 0640 // default permission for mkdir
 )
 
 var (
@@ -43,10 +41,11 @@ var (
 	convertFrom = UTF8 // file name conversion
 	convertTo   = UTF8
 
-	zipFile   = ""  // input ZIP filename
-	outDir    = "." // output directory
-	overwrite = false
-	quiet     = false
+	destDir = "." // output directory
+
+	overwrite   = false
+	quiet       = false
+	keepFileDir = false // make a subdirectory of the zip file and put files into there
 )
 
 // show Yes/No prompt
@@ -74,24 +73,46 @@ func promptYN(msg string, defaultYes bool) bool {
 func run() (err error) {
 	arg := flag.Args()
 	if len(arg) == 0 {
-		return fmt.Errorf("a ZIP filename must be given")
+		return fmt.Errorf("a zip filename must be given (use --help for help)")
 	}
-	zr, err := zip.OpenReader(arg[0])
+
+	// check the output directory
+	if !overwrite {
+		st, err := os.Stat(destDir)
+		if os.IsNotExist(err) {
+			return err
+		}
+		if !st.IsDir() {
+			return fmt.Errorf("the destination path is not a directory")
+		}
+	}
+
+	// make a zip reader
+	zipname := arg[0]
+	zr, err := zip.OpenReader(zipname)
 	if err != nil {
 		return
 	}
 	defer zr.Close()
 
-	// make a zip writer
+	if keepFileDir { // keep-organized; append the zip file name to the output path
+		// append the basename of ZIP to the output path
+		_, file := filepath.Split(zipname)
+		ext := filepath.Ext(file)
+		basename := file[:len(file)-len(ext)]
+		destDir = filepath.Join(destDir, basename)
+	}
+
+	// write files
 	for _, fileEntry := range zr.File {
 		// convert the filename
 		cf := convertFrom
 		//if fileEntry.Flags&FLAG_EFS != 0 {
-		if !fileEntry.NonUTF8 {
+		if !fileEntry.NonUTF8 { // Note that EFS flag checking is done in archive/zip package
 			cf = UTF8
 		}
 		name := fileEntry.Name
-		name, err = iconv.ConvertString(name, cf, convertTo)
+		name, err = iconv.ConvertString(name, cf, convertTo) // Note that it's safe to store non-UTF8 bytes in Go string, because it's internally just a []byte
 		if err != nil {
 			err = fmt.Errorf("converting from %s to %s: %w", convertFrom, convertTo, err)
 			return
@@ -126,11 +147,11 @@ func writeFile(entry *zip.File, name string) (err error) {
 	if name == "" {
 		return fmt.Errorf("empty filename")
 	}
-	outpath := filepath.Join(outDir, name)
+	outpath := filepath.Join(destDir, name)
 
 	if (name[len(name)-1] == '/' || name[len(name)-1] == '\\') && entry.UncompressedSize64 == 0 {
 		// the entry is a directory
-		err = os.MkdirAll(outpath, dirPerm)
+		err = os.MkdirAll(outpath, fs.ModePerm)
 		return
 	}
 
@@ -139,7 +160,7 @@ func writeFile(entry *zip.File, name string) (err error) {
 		if _, ok := err.(*fs.PathError); ok { // intermediate path error
 			// try to create intermediate paths
 			path := filepath.Dir(outpath)
-			err = os.MkdirAll(path, dirPerm)
+			err = os.MkdirAll(path, fs.ModePerm)
 			if err != nil {
 				return
 			}
@@ -177,7 +198,7 @@ func writeFile(entry *zip.File, name string) (err error) {
 		st, err = os.Stat(path)
 		if os.IsNotExist(err) {
 			// make the path
-			err = os.MkdirAll(path, dirPerm)
+			err = os.MkdirAll(path, fs.ModePerm)
 			if err != nil {
 				return
 			}
@@ -224,8 +245,9 @@ func main() {
 
 	flagList := false
 	flag.BoolVar(&flagList, "l", false, "print filenames without extracting")
-	flag.StringVar(&outDir, "d", outDir, "Directory to which to extract files")
+	flag.StringVar(&destDir, "d", destDir, "Directory to which to extract files")
 	flag.BoolVar(&overwrite, "o", overwrite, "overwrite existing files")
+	flag.BoolVar(&keepFileDir, "k", keepFileDir, "keep-organized; make a subdirectory of the same name with ZIP file and put files there")
 	flag.BoolVar(&quiet, "q", quiet, "suppress messages")
 	flag.StringVar(&convertFrom, "f", convertFrom, "codepage of filenames in ZIP")
 	flag.StringVar(&convertTo, "t", convertTo, "codepage of output filenames. WARNING: change this only if you know exactly what you are doing!")
