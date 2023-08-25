@@ -8,9 +8,11 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +32,9 @@ const (
 const (
 	UTF8 = "utf-8"
 
-	FLAG_EFS = 0x800 // EFS: Language Encoding Flag: if set, the filename is in UTF-8
+	//FLAG_EFS = 0x800 // EFS: Language Encoding Flag: if set, the filename is in UTF-8
+
+	dirPerm = 0640 // default permission for mkdir
 )
 
 var (
@@ -82,7 +86,8 @@ func run() (err error) {
 	for _, fileEntry := range zr.File {
 		// convert the filename
 		cf := convertFrom
-		if fileEntry.Flags&FLAG_EFS != 0 {
+		//if fileEntry.Flags&FLAG_EFS != 0 {
+		if !fileEntry.NonUTF8 {
 			cf = UTF8
 		}
 		name := fileEntry.Name
@@ -111,11 +116,40 @@ var (
 	hasPath = make(map[string]bool)
 )
 
+func dbgj(e any) string {
+	s, _ := json.Marshal(e)
+	return string(s)
+}
+
 func writeFile(entry *zip.File, name string) (err error) {
+
+	if name == "" {
+		return fmt.Errorf("empty filename")
+	}
 	outpath := filepath.Join(outDir, name)
+
+	if (name[len(name)-1] == '/' || name[len(name)-1] == '\\') && entry.UncompressedSize64 == 0 {
+		// the entry is a directory
+		err = os.MkdirAll(outpath, dirPerm)
+		return
+	}
+
 	st, err := os.Stat(outpath)
 	if !os.IsNotExist(err) {
+		if _, ok := err.(*fs.PathError); ok { // intermediate path error
+			// try to create intermediate paths
+			path := filepath.Dir(outpath)
+			err = os.MkdirAll(path, dirPerm)
+			if err != nil {
+				return
+			}
+			hasPath[path] = true
+			st, err = os.Stat(outpath)
+		}
+	}
+	if !os.IsNotExist(err) {
 		if st.IsDir() {
+			// a directory with the same name exists
 			return fmt.Errorf("cannot create file %s", name)
 		}
 		if !overwrite {
@@ -143,7 +177,7 @@ func writeFile(entry *zip.File, name string) (err error) {
 		st, err = os.Stat(path)
 		if os.IsNotExist(err) {
 			// make the path
-			err = os.MkdirAll(path, 0640)
+			err = os.MkdirAll(path, dirPerm)
 			if err != nil {
 				return
 			}
